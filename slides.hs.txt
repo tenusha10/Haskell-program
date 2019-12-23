@@ -1,0 +1,117 @@
+﻿---- Part 1 ----
+
+import Data.List
+import System.Random
+
+--defines the type of the point
+type Point = (Float,Float)
+
+--velocity function h takes the height of the start point and the height of a supporting point and returns the velocity at that supporting point
+velocity :: Float -> Float -> Float
+velocity x y = sqrt(9.81*(x-y)/0.5)
+
+--takes two two-dimensional points as input and returns the Euclidian distance between them
+distance :: Point -> Point -> Float
+distance (x0,y0) (x1,y1) = sqrt(((x0-x1)^2)+((y0-y1)^2))
+
+--time function takes the distance and two velocities and calculate the sliding time 
+time :: Float -> Float -> Float -> Float
+time d vi vj = d/((vi+vj)/2)
+
+
+--function takes a start and an end point as well as a list of supporting points and which returns a list of pairs.
+arrange_in_pairs :: Point -> Point -> [Point] -> [(Point, Point)]
+arrange_in_pairs p1 p2 xs = zip pair(tail pair)
+  where pair = [p1] ++ xs ++ [p2]
+
+
+--this is a helper function that takes a list of points and returns the slide time for the point 
+slide_time_at_point :: [(Point,Point)] -> Float
+slide_time_at_point [] = 0
+slide_time_at_point (x:xs) = ((distance (fst(x)) (snd(x))) / (((velocity 100 (snd(fst(x)))) + (velocity 100 (snd(snd(x))))))/0.5) + slide_time_at_point xs 
+
+
+--which takes the starting point of a slide, its end point and a list of supporting points and which returns the total time an object needs to run down the slide
+total_time :: Point -> Point -> [Point] -> Float
+total_time p1 p2 xs = slide_time_at_point(arrange_in_pairs p1 p2 xs)
+
+----Part 2 ----
+
+--defines the type for variable candidate
+type Candidate = (Point,Point,[Point],Float)
+
+--takes the start point, the end point and a list of lists of supporting points. For each list of supporting points, this function creates a candidate (including its sliding time)
+make_candidates :: Point -> Point -> [[Point]] -> [Candidate]
+make_candidates _ _ [] = []
+make_candidates p1 p2 (x:xs) =[(p1,p2,x,total_time p1 p2 x)] ++ (make_candidates p1 p2 xs)
+
+--a function that sorts a list of Candidates by the sliding time
+sort_by_time :: [Candidate] -> [Candidate]
+sort_by_time xs = sortBy(\(_,_,_,x) (_,_,_,y) -> compare x y) xs
+
+--function creates a string representation of a candidate. Each Point is written in its own line starting with the start point, followed by all supporting points and ending with the end point. The time is printed in an extra line consisting of the string “Time: ” and the value.
+candidate_to_string :: Candidate -> String
+candidate_to_string (p1,p2,[],slidet) = (point_to_string p1) ++ (point_to_string p2) ++ "Time:" ++ (show slidet)
+candidate_to_string(p1,p2,(x:xs),slidet) = (point_to_string p1) ++ (candidate_to_string (x,p2,xs,slidet))
+
+--helper function gets each point and convert into string
+point_to_string :: Point -> String
+point_to_string (x,y) = (show x) ++ " " ++ (show y) ++ "\n"
+
+--this function takes two lists of numbers and creates a list of lists of Points
+divide_list :: [Float] -> [Float] -> [[Point]]
+divide_list x [] = []
+divide_list x y = [zip x (take (length x) y)] ++ (divide_list x (drop (length x) y))
+
+----Part 3----
+
+--this function creates a list of random integers and also returns the random number genrator
+random_list :: Int -> (Float, Float) -> StdGen -> ([Float], StdGen)
+random_list 0 _ gen = ([], gen)
+random_list n minmax gen = ((r:rs), g2)
+ where
+      (r, g) = randomR minmax gen
+      (rs, g2) = random_list (n-1) minmax g
+
+--this function randomly creates a population of candidates, the number of candidates generated  is based on the variable inputted(n) and returns a list of candidates and random generator
+create_random_candidates :: Int -> Point -> Point -> [Float] -> (Float,Float) -> StdGen -> ([Candidate], StdGen)
+create_random_candidates n p1 p2 listxPoints yMinandMax randGen = (make_candidates p1 p2 supportpoints, (snd randomNumbers))
+  where 
+       supportpoints = divide_list listxPoints (fst randomNumbers)
+       randomNumbers = random_list  listLength yMinandMax randGen
+       listLength= n * (length listxPoints)
+
+---- Part 4 ----
+
+--this function takes a list of candidates and returns a new candidate by selecting randomly generated support points
+--the number of candidates created is determined by n as when crossing candidates the function  should return the original number of candidates + the new candidates created(rounded down Eg 3 would return 3 candidates) by n-1 candidates
+--candidates with the lowest sliding time should be cross bred to produce the best slides 
+crossover :: [Candidate] -> Int -> StdGen -> ([Candidate], StdGen)
+crossover cs n g = (cs ++ cs_new, g1)
+ where
+      pairs = [(( cs !! c1), (cs !! c2)) | c1 <- [0..(n-1)], c2 <- [(c1+1)..(n-1)]]
+      (cs_new, g1) = cross_pairs pairs g
+
+--this function scales up the cross_pair function to cross bread a pair of candidates in the list to create a new candidate, function returns the original candidates and a new candidate and the random generator 
+cross_pairs :: [( Candidate, Candidate)] -> StdGen -> ([Candidate], StdGen)
+cross_pairs [] g = ([], g)
+cross_pairs (cp:cps) g = (c:cs, g2)
+ where
+      (c, g1) = cross_pair cp g
+      (cs, g2) = cross_pairs cps g1
+
+--this function takes two candidates and random number generator and cross over the list of support points between candidate 1 and candidate 2, it calls the function cross_supp to generate a random support points and select which candidate to pick, function returns the cross bred list of support points
+cross_pair :: (Candidate, Candidate) -> StdGen -> (Candidate, StdGen)
+cross_pair (( s, e, ps1, _ ), (_, _, ps2, _)) g = (( s, e, ps, t ), g1)
+ where
+      (ps, g1) = cross_supp ps1 ps2 g
+      t = total_time s e ps
+
+
+--this function randomly picks support points,takes two list of points and random generator as inputs,uses recursion, r is a random number between 0 and 1 the function checks if r is less than half then function picks candidate 1 if it is more than half it picks candidate 2  
+cross_supp :: [Point] -> [Point] -> StdGen -> ([Point], StdGen)
+cross_supp [] [] g = ([], g)
+cross_supp (c1:cs1) (c2:cs2) g = (( if r < 0.5 then c1 else c2) : xs, g2)
+ where
+      ( r , g1) = randomR (0 :: Float, 1 :: Float) g
+      (xs, g2) = cross_supp cs1 cs2 g1
